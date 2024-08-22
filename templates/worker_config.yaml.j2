@@ -1,0 +1,5 @@
+server: https://{{ groups['masters'][0] }}:9345
+node-ip: "{{ ansible_host }}"
+node-name: "{{ inventory_hostname }}"
+token: "{{ rke2_token }}"
+disable: ["controller", "scheduler", "etcd"]

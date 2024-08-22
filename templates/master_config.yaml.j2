@@ -1,0 +1,6 @@
+server: https://{{ hostvars[groups['masters'][0]].ansible_host }}:9345
+token: "{{ rke2_token }}"
+tls-san:
+  {% for master in groups['masters'] %}
+  - "{{ hostvars[master].ansible_host | default(master) }}"
+  {% endfor %}

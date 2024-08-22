@@ -1,0 +1,191 @@
+---
+- name: Setup RKE2 Initial Master Node
+  hosts: masters[0]  # First master node
+  become: yes
+  vars:
+    rke2_version: "v1.30.4-rc3+rke2r1"
+    rke2_channel: "stable"
+    rke2_config_dir: "/etc/rancher/rke2"
+    rke2_url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2.linux-amd64.tar.gz"
+  tasks:
+    - name: Add IP address of all hosts to all hosts
+      ansible.builtin.lineinfile:
+        dest: /etc/hosts
+        regexp: '.*{{ item }}$'
+        line: "{{ hostvars[item].ansible_host }} {{ item }}"
+        state: present
+      loop: "{{ groups['all'] }}"
+      when: hostvars[item].ansible_host is defined
+
+    - name: Install RKE2
+      ansible.builtin.get_url:
+        url: "{{ rke2_url }}"
+        dest: "/tmp/rke2.tar.gz"
+
+    - name: Extract RKE2 binary
+      ansible.builtin.unarchive:
+        src: "/tmp/rke2.tar.gz"
+        dest: "/usr/local"
+        remote_src: yes
+
+    - name: Create RKE2 config directory
+      ansible.builtin.file:
+        path: "/etc/rancher/rke2"
+        state: directory
+        mode: '0755'
+
+    - name: Configure RKE2 Master
+      ansible.builtin.template:
+        src: "master_initial.yaml.j2"
+        dest: "/etc/rancher/rke2/config.yaml"
+
+    - name: Enable and start RKE2 service
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: started
+        enabled: yes
+
+    - name: Wait for RKE2 to be ready
+      ansible.builtin.wait_for:
+        port: 9345
+        delay: 10
+        timeout: 120
+
+    - name: Wait for token file to be created on master
+      ansible.builtin.wait_for:
+        path: "/var/lib/rancher/rke2/server/node-token"
+        state: present
+        delay: 10
+        timeout: 120
+      when: "'masters' in group_names"
+
+    - name: Get the RKE2 node token from master
+      ansible.builtin.slurp:
+        src: "/var/lib/rancher/rke2/server/node-token"
+      register: token_data
+      when: "'masters' in group_names"
+
+    - name: Save token to a file on the control machine
+      ansible.builtin.copy:
+        content: "{{ token_data.content | b64decode }}"
+        dest: "/tmp/rke2-node-token.txt"
+      when: "'masters' in group_names"
+
+    - name: Set RKE2 token as a fact on the control machine
+      ansible.builtin.set_fact:
+        rke2_token: "{{ token_data.content | b64decode }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Debug RKE2 token on control node
+      ansible.builtin.debug:
+        msg: "RKE2 token: {{ rke2_token }}"
+      delegate_to: localhost
+      run_once: true
+
+- name: Setup Additional RKE2 Master Nodes
+  hosts: masters[1:]  # Additional master nodes
+  become: yes
+  vars:
+    rke2_version: "v1.30.4-rc3+rke2r1"
+    rke2_channel: "stable"
+    rke2_config_dir: "/etc/rancher/rke2"
+    rke2_url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2.linux-amd64.tar.gz"
+  tasks:
+    - name: Add IP address of all hosts to all hosts
+      ansible.builtin.lineinfile:
+        dest: /etc/hosts
+        regexp: '.*{{ item }}$'
+        line: "{{ hostvars[item].ansible_host }} {{ item }}"
+        state: present
+      loop: "{{ groups['all'] }}"
+      when: hostvars[item].ansible_host is defined
+
+    - name: Install RKE2
+      ansible.builtin.get_url:
+        url: "{{ rke2_url }}"
+        dest: "/tmp/rke2.tar.gz"
+
+    - name: Extract RKE2 binary
+      ansible.builtin.unarchive:
+        src: "/tmp/rke2.tar.gz"
+        dest: "/usr/local"
+        remote_src: yes
+
+    - name: Create RKE2 config directory
+      ansible.builtin.file:
+        path: "/etc/rancher/rke2"
+        state: directory
+        mode: '0755'
+
+    - name: Configure RKE2 Master
+      ansible.builtin.template:
+        src: "master_config.yaml.j2"
+        dest: "/etc/rancher/rke2/config.yaml"
+      vars:
+        rke2_token: "{{ hostvars[groups['masters'][0]].rke2_token }}"
+
+    - name: Enable and start RKE2 service
+      ansible.builtin.systemd:
+        name: rke2-server
+        state: started
+        enabled: yes
+
+    - name: Wait for RKE2 to be ready
+      ansible.builtin.wait_for:
+        port: 9345
+        delay: 10
+        timeout: 120
+
+- name: Setup RKE2 Worker Nodes
+  hosts: workers
+  become: yes
+  vars:
+    rke2_version: "v1.30.4-rc3+rke2r1"
+    rke2_channel: "stable"
+    rke2_config_dir: "/etc/rancher/rke2"
+  tasks:
+    - name: Add IP address of all hosts to all hosts
+      ansible.builtin.lineinfile:
+        dest: /etc/hosts
+        regexp: '.*{{ item }}$'
+        line: "{{ hostvars[item].ansible_host }} {{item}}"
+        state: present
+      when: hostvars[item].ansible_host is defined
+      with_items: "{{ groups.all }}"
+    - name: Install RKE2
+      ansible.builtin.get_url:
+        url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/rke2.linux-amd64.tar.gz"
+        dest: "/tmp/rke2.tar.gz"
+
+    - name: Extract RKE2 binary
+      ansible.builtin.unarchive:
+        src: "/tmp/rke2.tar.gz"
+        dest: "/usr/local"
+        remote_src: yes
+
+    - name: Create RKE2 config directory
+      ansible.builtin.file:
+        path: "/etc/rancher/rke2"
+        state: directory
+        mode: '0755'
+
+    - name: Configure RKE2 Worker
+      ansible.builtin.template:
+        src: "worker_config.yaml.j2"
+        dest: "/etc/rancher/rke2/config.yaml"
+      vars:
+        rke2_token: "{{ hostvars[groups['masters'][0]].rke2_token }}"
+
+    - name: Enable and start RKE2 service
+      ansible.builtin.systemd:
+        name: rke2-agent
+        state: started
+        enabled: yes
+
+    - name: Wait for RKE2 agent service to be active
+      ansible.builtin.systemd:
+        name: rke2-agent
+        state: started
+        enabled: yes
+      when: ansible_host in groups['worker']

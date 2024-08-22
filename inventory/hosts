@@ -1,0 +1,8 @@
+[masters]
+k8s-master ansible_host=10.10.0.120 ansible_port=222
+k8s-worker01 ansible_host=10.10.0.121 ansible_port=222
+#k8s-worker02 ansible_host=10.10.0.122 ansible_port=222
+
+[workers]
+#k8s-worker01 ansible_host=10.10.0.121 ansible_port=222
+k8s-worker02 ansible_host=10.10.0.122 ansible_port=222
