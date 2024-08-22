@@ -188,4 +188,4 @@
         name: rke2-agent
         state: started
         enabled: yes
-      when: ansible_host in groups['worker']
+      when: inventory_hostname in groups['workers']
